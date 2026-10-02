@@ -11,6 +11,7 @@ pc/obj/
 # 运行时状态文件（每台机器不同）
 apk_installed.txt
 last_ip.txt
+phone_ip.txt
 settings2.txt
 
 # 说明：PcAudio.apk 是特意提交的 —— 它才 33KB，直接用得上

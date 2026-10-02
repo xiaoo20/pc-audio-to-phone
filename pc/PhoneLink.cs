@@ -32,6 +32,9 @@ namespace PcAudioServer
         bool installedHashOk;
         DateTime lastApkCheck = DateTime.MinValue;
         DateTime lastAdbWarn = DateTime.MinValue;
+        DateTime lastWifiTry = DateTime.MinValue;
+        string savedPhoneIp;            // 记住的手机局域网地址，用于纯 Wi-Fi 冷启动
+        string baseDir;
 
         public bool AdbFound { get { return !string.IsNullOrEmpty(adb); } }
         public string UsbSerial { get; private set; }
@@ -47,6 +50,8 @@ namespace PcAudioServer
 
         public void Init(string baseDir)
         {
+            this.baseDir = baseDir;
+            LoadPhoneIp();
             adb = FindAdb(baseDir);
             if (adb == null)
             {
@@ -57,8 +62,68 @@ namespace PcAudioServer
             {
                 Emit("[手机] adb: " + adb);
                 TryRun("start-server", 8000);
+                if (!string.IsNullOrEmpty(savedPhoneIp))
+                    Emit("[手机] 记住的手机地址 " + savedPhoneIp + "（没插线时会用它走 Wi-Fi）");
             }
             Bump();
+        }
+
+        // ---- 记住手机局域网地址 ----
+        // 以前这是 启动.bat 读 last_ip.txt 干的活，我把启动器折进 exe 的时候把它弄丢了，
+        // 结果纯 Wi-Fi 冷启动时 exe 不知道手机在哪、只能干等。补回来。
+
+        string IpFilePath
+        {
+            get { return string.IsNullOrEmpty(baseDir) ? null : Path.Combine(baseDir, "phone_ip.txt"); }
+        }
+
+        void LoadPhoneIp()
+        {
+            try
+            {
+                string p = IpFilePath;
+                if (p != null && File.Exists(p))
+                {
+                    string s = File.ReadAllText(p).Trim();
+                    if (s.Length > 0) savedPhoneIp = s;
+                }
+            }
+            catch { }
+        }
+
+        void SavePhoneIp()
+        {
+            try
+            {
+                string p = IpFilePath;
+                if (p != null && !string.IsNullOrEmpty(savedPhoneIp)) File.WriteAllText(p, savedPhoneIp);
+            }
+            catch { }
+        }
+
+        /// <summary>插着 USB 的时候顺手把手机的局域网地址学下来，之后不插线也能直接 Wi-Fi 冷启动。</summary>
+        void LearnWifiIp(string usbSerial)
+        {
+            if (!string.IsNullOrEmpty(savedPhoneIp)) return;
+            try
+            {
+                var r = Run("-s " + usbSerial + " shell ip -4 -o addr show scope global", 8000);
+                if (r.code != 0 || string.IsNullOrEmpty(r.output)) return;
+                foreach (var raw in r.output.Replace("\r", "").Split('\n'))
+                {
+                    string line = raw.Trim();
+                    if (line.IndexOf("wlan", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    var m = System.Text.RegularExpressions.Regex.Match(line, @"inet\s+(\d+\.\d+\.\d+\.\d+)");
+                    if (m.Success)
+                    {
+                        savedPhoneIp = m.Groups[1].Value;
+                        SavePhoneIp();
+                        Emit("[手机] 已记下手机局域网地址 " + savedPhoneIp);
+                        return;
+                    }
+                }
+            }
+            catch { }
         }
 
         static string FindAdb(string baseDir)
@@ -221,6 +286,7 @@ namespace PcAudioServer
                     if (TunnelOk)
                     {
                         EnsureApk(serial, apkPath);
+                        LearnWifiIp(serial);          // 顺手记下局域网地址，下次不插线也能用
                         ApplyToPhone(serial, "127.0.0.1", port, "USB 隧道");
                         Transport = "USB 隧道";
                         lastUsbSerial = serial;
@@ -245,7 +311,7 @@ namespace PcAudioServer
                     return;
                 }
 
-                // ---- 3. 什么都没有 ----
+                // ---- 3. 什么都没有：拿记住的地址试试 Wi-Fi 冷启动 ----
                 if (UsbSerial == null && WifiSerial == null)
                 {
                     if (lastUsbSerial != null || lastWifiSerial != null)
@@ -256,6 +322,19 @@ namespace PcAudioServer
                     TunnelOk = false;
                     Transport = "未连接";
                     Bump();
+
+                    if (!string.IsNullOrEmpty(savedPhoneIp) &&
+                        (DateTime.Now - lastWifiTry).TotalSeconds > 20)
+                    {
+                        lastWifiTry = DateTime.Now;
+                        Emit("[手机] 没看到设备，试着 Wi-Fi 连 " + savedPhoneIp + " ...");
+                        var cr = Run("connect " + savedPhoneIp + ":5555", 12000);
+                        if (cr.output.IndexOf("connected to", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            Emit("[手机] Wi-Fi 已连上 " + savedPhoneIp);
+                            RefreshDevices();
+                        }
+                    }
                 }
             }
             catch (Exception ex)
