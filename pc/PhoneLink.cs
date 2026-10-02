@@ -303,6 +303,19 @@ namespace PcAudioServer
                 // ---- 2. 没有 USB：看有没有 Wi-Fi adb 设备 ----
                 if (WifiSerial != null)
                 {
+                    // Wi-Fi 设备本身就带着地址（192.168.x.x:5555），顺手记下来 ——
+                    // 这样即使没插过 USB，也能在 adb server 重启后自己重连回去。
+                    if (string.IsNullOrEmpty(savedPhoneIp))
+                    {
+                        int c = WifiSerial.LastIndexOf(':');
+                        string ip = (c > 0) ? WifiSerial.Substring(0, c) : WifiSerial;
+                        if (ip.Length > 0 && ip.IndexOf('.') > 0)
+                        {
+                            savedPhoneIp = ip;
+                            SavePhoneIp();
+                            Emit("[手机] 已记下手机局域网地址 " + savedPhoneIp);
+                        }
+                    }
                     EnsureApk(WifiSerial, apkPath);
                     ApplyToPhone(WifiSerial, LocalIp(), port, "Wi-Fi");
                     Transport = "Wi-Fi";
