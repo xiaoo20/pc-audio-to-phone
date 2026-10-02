@@ -1,0 +1,23 @@
+# 构建产物（可重新生成）
+_pub/
+bin/
+build/
+pc/bin/
+pc/obj/
+发布包/
+*.user
+*.suo
+
+# 运行时状态文件（每台机器不同）
+apk_installed.txt
+last_ip.txt
+settings2.txt
+
+# 说明：PcAudio.apk 是特意提交的 —— 它才 33KB，直接用得上
+#       tools/pcaudio.keystore 也提交了（自签名密钥，密码 pcaudio，
+#       用来保证重新编译出来的 APK 签名一致、能覆盖安装）
+
+# 系统
+Thumbs.db
+desktop.ini
+.DS_Store

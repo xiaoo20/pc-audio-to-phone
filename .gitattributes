@@ -1,0 +1,5 @@
+﻿# 源码统一用 LF 存进仓库，避免 Windows 上 checkout 时被改成 CRLF
+* text=auto eol=lf
+*.png binary
+*.apk binary
+*.keystore binary
